@@ -248,7 +248,7 @@ body.cine #cineBars{display:block}
   <div class="card">
     <div class="label">Room code</div>
     <div class="row"><div class="code" id="lobbyCode">-----</div><button class="btn alt small" id="copyCode">Copy</button></div>
-    <p class="note">Friends pick Join room on the main menu and type this code. They need access to this game (Share it with them) and must be signed in to Claude.</p>
+    <p class="note" id="lobbyHelp">Friends pick Join room on the main menu and type this code. They need access to this game (Share it with them) and must be signed in to Claude.</p>
     <div class="label">Players</div>
     <ul class="plist" id="plist"></ul>
     <div class="row"><button class="btn" id="lobbyStart">Start game</button><button class="btn alt" id="lobbyLeave">Leave</button></div>
@@ -1568,10 +1568,44 @@ function setName(){net.name=cleanName($('nick').value);try{localStorage.setItem(
 try{const v=localStorage.getItem('da-nick');if(v)$('nick').value=cleanName(v);}catch(e){}
 function setMpNote(t,err){const n=$('mpNote');n.textContent=t;n.classList.toggle('err',!!err);}
 function menuBusy(b){$('hostBtn').disabled=b||!net.lobby;$('joinBtn').disabled=b||!net.lobby;$('startBtn').disabled=b;}
+// ---- peer-to-peer rooms for when the game runs outside Claude (e.g. GitHub Pages) ----
+// Same shape as Claude's room: join(name) -> {peers(), presence(obj), leave()}. The host's browser relays everyone's state.
+const PEERJS_URL='https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+function loadPeerJS(){return new Promise((res,rej)=>{if(window.Peer)return res();const s=document.createElement('script');s.src=PEERJS_URL;s.onload=()=>window.Peer?res():rej(new Error('no Peer'));s.onerror=rej;document.head.appendChild(s);});}
+function peerOpts(){const q=new URLSearchParams(location.search);const h=q.get('peerhost');return h?{host:h,port:+q.get('peerport')||9000,path:q.get('peerpath')||'/',secure:false}:{};}
+function p2pLobby(){
+  return{join(name,mode){return new Promise((resolve,reject)=>{
+    const hostId='deadacre-'+name.replace(/[^a-z0-9-]/gi,'').toLowerCase(),isHost=mode==='host';
+    const peer=isHost?new Peer(hostId,peerOpts()):new Peer(peerOpts());
+    const others=new Map(); // id -> presence
+    const conns=new Map();  // host: id -> conn
+    let mine={},hostConn=null,opened=false,left=false;
+    const fail=e=>{if(!opened){try{peer.destroy();}catch(x){}const err=new Error(e&&e.type||'p2p');err.code=e&&e.type==='unavailable-id'?'taken':'p2p';reject(err);}};
+    peer.on('error',e=>{if(e&&e.type==='peer-unavailable')return;fail(e);});
+    const room={
+      peers(){const out=[{peer:peer.id,presence:mine,sameTab:true}];for(const [id,p] of others)if(id!==peer.id)out.push({peer:id,presence:p,sameTab:false});return out;},
+      presence(obj){mine=obj;
+        if(isHost){const all=[[peer.id,mine]];for(const [id,p] of others)all.push([id,p]);const msg={all};for(const c of conns.values())if(c.open)try{c.send(msg);}catch(e){}}
+        else if(hostConn&&hostConn.open)try{hostConn.send({p:mine});}catch(e){}
+        return Promise.resolve();},
+      leave(){left=true;try{peer.destroy();}catch(e){}others.clear();return Promise.resolve();}
+    };
+    peer.on('open',()=>{opened=true;
+      if(isHost){peer.on('connection',c=>{c.on('open',()=>conns.set(c.peer,c));c.on('data',d=>{if(d&&d.p&&typeof d.p==='object')others.set(c.peer,d.p);});
+          const drop=()=>{conns.delete(c.peer);others.delete(c.peer);};c.on('close',drop);c.on('error',drop);});}
+      else{const connect=()=>{if(left)return;hostConn=peer.connect(hostId,{serialization:'json',reliable:false});
+          hostConn.on('data',d=>{if(!d||!Array.isArray(d.all))return;const seen=new Set();for(const [id,p] of d.all){if(id===peer.id||!p||typeof p!=='object')continue;others.set(id,p);seen.add(id);}for(const id of [...others.keys()])if(!seen.has(id))others.delete(id);});
+          hostConn.on('close',()=>{others.clear();setTimeout(connect,1500);});};connect();}
+      resolve(room);});
+    setTimeout(()=>fail({type:'timeout'}),12000);
+  });}};
+}
+
 (async()=>{
   try{net.lobby=(window.claude&&typeof window.claude.use==='function')?await window.claude.use('room'):null;}catch(e){net.lobby=null;}
+  if(!net.lobby){try{await loadPeerJS();net.lobby=p2pLobby();net.p2p=true;}catch(e){net.lobby=null;}}
   if(net.lobby){menuBusy(false);setMpNote('Create a room and send the code to friends, or join theirs.');}
-  else{menuBusy(false);setMpNote('Multiplayer works when this game is open in Claude and you are signed in.');}
+  else{menuBusy(false);setMpNote('Multiplayer couldn’t load. Check your connection and refresh.');}
 })();
 const roomErr=e=>e&&e.code==='not_permitted'?'Multiplayer isn’t available for your account here.':e&&e.code==='limit_reached'?'Too many rooms open right now. Try again in a moment.':'Couldn’t reach the room. Check your connection and try again.';
 const genCode=()=>{let c='';for(let i=0;i<5;i++)c+=CODE_CHARS[__rnd()*CODE_CHARS.length|0];return c;};
@@ -1580,12 +1614,12 @@ function myPeer(){if(net.me)return net.me;if(!net.room)return null;try{const p=n
 async function enterRoom(code,mode){
   setName();initAudio();menuBusy(true);setMpNote(mode==='host'?'Creating room…':'Joining room…');
   let room;
-  try{room=await net.lobby.join('da-'+code);}catch(e){setMpNote(roomErr(e),true);menuBusy(false);return false;}
+  try{room=await net.lobby.join('da-'+code,mode);}catch(e){setMpNote(e&&e.code==='taken'?'That room code is busy. Try again.':roomErr(e),true);menuBusy(false);return false;}
   Object.assign(net,{mode,room,code,me:null,phase:mode==='host'?'lobby':'joining',run:0,lastRun:-1,hostSeen:0,joinT:performance.now(),sendT:0,paused:false,wipeT:0,
     hits:[],claims:[],lastHurt:-1,hurts:[],booms:[],remote:new Map(),scores:new Map(),lastHit:new Map()});
   net.claimed.clear();net.seenBooms.clear();
   $('start').hidden=true;$('lobby').hidden=false;$('lobbyCode').textContent=code.toUpperCase();
-  $('lobbyStart').hidden=mode!=='host';
+  $('lobbyStart').hidden=mode!=='host';if(net.p2p)$('lobbyHelp').textContent='Friends open the same game link, pick Join room and type this code.';
   $('lobbyNote').textContent=mode==='host'?'Start whenever your squad is in. Friends can also join mid-game.':'Looking for the host…';
   menuBusy(false);renderLobby();
   return true;
@@ -1762,7 +1796,7 @@ function netRead(){
   for(const [k,rr] of net.remote)if(!seen.has(k)){removeAvatar(rr);net.remote.delete(k);}
   if(net.mode==='client'){
     if(host){net.hostSeen=now;onHost(host.presence);}
-    else if(net.phase==='joining'&&now-net.joinT>7000){const c=net.code.toUpperCase();leaveGame();setMpNote(`No game found with code ${c}. Check the code and try again.`,true);}
+    else if(net.phase==='joining'&&now-net.joinT>(net.p2p?20000:7000)){const c=net.code.toUpperCase();leaveGame();setMpNote(`No game found with code ${c}. Check the code and try again.`,true);}
     else if(net.hostSeen&&now-net.hostSeen>5000&&net.phase!=='gone')hostGone();
   }else if(net.mode==='host'&&net.phase==='play')processReports();
 }
