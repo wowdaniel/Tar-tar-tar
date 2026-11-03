@@ -64,7 +64,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:#0d1114;color:var(--in
 #cross .pv,.xhp .pv{width:2px;height:calc(var(--xl)*2 + 2px);top:calc(-1px - var(--xl));left:-1px}
 #cross[data-xh="plus"] .ph,#cross[data-xh="plus"] .pv,.xhp[data-xh="plus"] .ph,.xhp[data-xh="plus"] .pv{display:block}
 #cross[data-xh="x"],.xhp[data-xh="x"]{transform:rotate(45deg)}
-[data-xh="cross"] .dot,[data-xh="cross"] .ring,[data-xh="cross-dot"] .ring,[data-xh="x"] .dot,[data-xh="x"] .ring,[data-xh="plus"] .h,[data-xh="plus"] .v,[data-xh="plus"] .dot,[data-xh="plus"] .ring,[data-xh="off"] i{display:none}
+[data-xh="dot"] .h,[data-xh="dot"] .v,[data-xh="dot"] .ring,[data-xh="x"] .dot,[data-xh="x"] .ring,[data-xh="plus"] .h,[data-xh="plus"] .v,[data-xh="plus"] .dot,[data-xh="plus"] .ring,[data-xh="off"] i{display:none}
 .settings{display:grid;gap:14px;padding:16px;background:var(--panel);border:1px solid var(--line)}
 .set{display:grid;gap:8px}
 .set .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
@@ -196,7 +196,7 @@ body.cine #cineBars{display:block}
 <div id="clickIn" hidden>Click to lock the mouse and play</div>
 <div id="cineTitle"><span>Boss round · The basement</span><b>The Wendigo</b></div>
 <div class="hud" id="scope"></div>
-<div class="hud" id="cross" data-xh="cross"><i class="h" id="cl"></i><i class="h" id="cr"></i><i class="v" id="cu"></i><i class="v" id="cd"></i><i class="dot"></i><i class="ring"></i><i class="ph"></i><i class="pv"></i></div>
+<div class="hud" id="cross" data-xh="plus"><i class="h" id="cl"></i><i class="h" id="cr"></i><i class="v" id="cu"></i><i class="v" id="cd"></i><i class="dot"></i><i class="ring"></i><i class="ph"></i><i class="pv"></i></div>
 <div class="hud" id="hit"></div>
 <div class="hud" id="hitdir"><i></i><i></i><i></i><i></i></div>
 <div class="hud" id="tl">
@@ -280,8 +280,8 @@ body.cine #cineBars{display:block}
       <div class="set"><div class="top"><label class="label" for="amb">Storm volume</label><output id="ambOut" for="amb">100%</output></div><input type="range" id="amb" min="0" max="1" step="0.05" value="1"></div>
       <div class="set"><div class="top"><label class="label" for="sens">Mouse sensitivity</label><output id="sensOut" for="sens">1.00</output></div><input type="range" id="sens" min="0.2" max="3" step="0.05" value="1"></div>
       <div class="set"><span class="label">Crosshair</span>
-        <div class="xhrow"><div class="xhbox" aria-hidden="true"><div class="xhp" id="xhPrev" data-xh="cross"><i class="h" style="left:calc(-6px - var(--xl))"></i><i class="h" style="left:6px"></i><i class="v" style="top:calc(-6px - var(--xl))"></i><i class="v" style="top:6px"></i><i class="dot"></i><i class="ring"></i><i class="ph"></i><i class="pv"></i></div></div>
-          <div class="seg" id="xhStyle"><button data-v="cross">Cross</button><button data-v="cross-dot">Cross + dot</button><button data-v="x">X</button><button data-v="plus">Plus +</button><button data-v="off">Off</button></div></div></div>
+        <div class="xhrow"><div class="xhbox" aria-hidden="true"><div class="xhp" id="xhPrev" data-xh="plus"><i class="h" style="left:calc(-6px - var(--xl))"></i><i class="h" style="left:6px"></i><i class="v" style="top:calc(-6px - var(--xl))"></i><i class="v" style="top:6px"></i><i class="dot"></i><i class="ring"></i><i class="ph"></i><i class="pv"></i></div></div>
+          <div class="seg" id="xhStyle"><button data-v="plus">+</button><button data-v="x">X</button><button data-v="dot">Dot</button></div></div></div>
       <div class="set"><div class="top"><label class="label" for="xhSize">Crosshair size</label><output id="xhSizeOut" for="xhSize">1.0×</output></div><input type="range" id="xhSize" min="0.5" max="2.5" step="0.1" value="1"></div>
       <div class="set"><span class="label">Crosshair colour</span><div class="seg" id="xhColor"></div></div>
     </div>
@@ -901,8 +901,8 @@ const r2=v=>Math.round(v*100)/100;
 
 // ---------- settings ----------
 const XH_COLORS=[['#ece4cf','White'],['#7dff6a','Green'],['#ff4a3d','Red'],['#ffd43b','Yellow'],['#4ae3ff','Cyan'],['#ff6ad5','Pink']];
-const settings={sens:1,xh:'cross',xhSize:1,xhColor:'#ece4cf',vol:.8,amb:1};
-try{const v=JSON.parse(localStorage.getItem('da-settings')||'{}');if(v&&typeof v==='object'){if(+v.sens>0)settings.sens=clamp(+v.sens,.2,3);if(['cross','cross-dot','x','plus','off'].includes(v.xh))settings.xh=v.xh;if(+v.xhSize>0)settings.xhSize=clamp(+v.xhSize,.5,2.5);if(XH_COLORS.some(c=>c[0]===v.xhColor))settings.xhColor=v.xhColor;}}catch(e){}
+const settings={sens:1,xh:'plus',xhSize:1,xhColor:'#ece4cf',vol:.8,amb:1};
+try{const v=JSON.parse(localStorage.getItem('da-settings')||'{}');if(v&&typeof v==='object'){if(+v.sens>0)settings.sens=clamp(+v.sens,.2,3);if(['plus','x','dot'].includes(v.xh))settings.xh=v.xh;if(+v.xhSize>0)settings.xhSize=clamp(+v.xhSize,.5,2.5);if(XH_COLORS.some(c=>c[0]===v.xhColor))settings.xhColor=v.xhColor;}}catch(e){}
 function loadVol(){try{const v=JSON.parse(localStorage.getItem('da-settings')||'{}');if(v&&isFinite(+v.vol))settings.vol=clamp(+v.vol,0,1);if(v&&isFinite(+v.amb))settings.amb=clamp(+v.amb,0,1);}catch(e){}}loadVol();
 function saveSettings(){try{localStorage.setItem('da-settings',JSON.stringify(settings));}catch(e){}}
 function applySettings(){
