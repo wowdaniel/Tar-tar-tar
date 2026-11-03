@@ -186,13 +186,14 @@ body.cine #cineBars{display:block}
 #chatLog .cl.sys{color:var(--dim);font-style:italic}
 #chatBox{position:fixed;left:calc(16px + env(safe-area-inset-left,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100vw - 32px));z-index:30}
 #chatIn{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--ink);background:rgba(8,10,12,.85);border:1px solid var(--amber);padding:8px 10px;outline:none}
-body.playing,body.playing #game,body.playing canvas{cursor:none}
+#clickIn{position:fixed;left:50%;top:58%;transform:translateX(-50%);padding:10px 18px;background:var(--panel);border:1px solid var(--amber);color:var(--ink);font-size:14px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;z-index:25}
 </style>
 
 <div id="game"></div>
 <div class="hud" id="vig"></div>
 <div class="hud" id="pulse"></div>
 <div id="cineBars"></div>
+<div id="clickIn" hidden>Click to lock the mouse and play</div>
 <div id="cineTitle"><span>Boss round · The basement</span><b>The Wendigo</b></div>
 <div class="hud" id="scope"></div>
 <div class="hud" id="cross" data-xh="cross"><i class="h" id="cl"></i><i class="h" id="cr"></i><i class="v" id="cu"></i><i class="v" id="cd"></i><i class="dot"></i><i class="ring"></i><i class="ph"></i><i class="pv"></i></div>
@@ -936,7 +937,7 @@ addEventListener('keydown',e=>{
   if(e.code==='Space')e.preventDefault();
 });
 addEventListener('keyup',e=>keys[e.code]=false);
-function syncButtons(b){if(state!=='play'||chatOpen)return;const L=!!(b&1),R=!!(b&2);if(L&&!mouseDown)triggerPull=true;mouseDown=L;zoomHeld=R;}
+function syncButtons(b){if(state!=='play'||chatOpen)return;if(document.pointerLockElement!==canvas){mouseDown=zoomHeld=false;return;}const L=!!(b&1),R=!!(b&2);if(L&&!mouseDown)triggerPull=true;mouseDown=L;zoomHeld=R;}
 ['pointerdown','pointerup','mousedown','mouseup'].forEach(t=>addEventListener(t,e=>syncButtons(e.buttons)));
 addEventListener('contextmenu',e=>e.preventDefault());
 addEventListener('wheel',e=>{if(state!=='play')return;selectSlot((cur+(e.deltaY>0?1:4))%5);},{passive:true});
@@ -1802,7 +1803,10 @@ function begin(){initAudio();if(actx&&actx.state==='suspended')actx.resume();loc
 $('startBtn').onclick=()=>{setName();net.mode='solo';$('start').hidden=true;reset();state='play';begin();};
 $('resumeBtn').onclick=()=>{$('pause').hidden=true;if(net.mode==='solo')state='play';net.paused=false;begin();};
 $('againBtn').onclick=()=>{$('over').hidden=true;if(net.mode==='host')hostStart();else{reset();state='play';begin();}};
-canvas.addEventListener('click',()=>{if(state==='play'&&!shopOpen&&document.pointerLockElement!==canvas)lock();});
+// the mouse stays locked while you play; only Esc (pause), B (shop) and Tab (chat) let it go
+function wantsLock(){return state==='play'&&!net.paused&&!shopOpen&&!chatOpen&&!cine&&$('pause').hidden&&$('confirm').hidden&&$('over').hidden&&$('lobby').hidden&&$('start').hidden;}
+document.addEventListener('mousedown',()=>{if(wantsLock()&&document.pointerLockElement!==canvas)lock();},true);
+document.addEventListener('keydown',e=>{if(!['Escape','KeyB','Tab'].includes(e.code)&&wantsLock()&&document.pointerLockElement!==canvas)lock();});
 
 // ---------- multiplayer ----------
 // The host's page runs the zombies, boss, waves and loot and shares a snapshot
@@ -2695,7 +2699,7 @@ setInterval(()=>{
 },250);
 function frame(){
   requestAnimationFrame(frame);
-  {const pl=state==='play'&&!net.paused&&!shopOpen&&!chatOpen&&$('pause').hidden&&$('confirm').hidden;if(pl!==document.body.classList.contains('playing'))document.body.classList.toggle('playing',pl);}
+  {const need=wantsLock()&&document.pointerLockElement!==canvas;const el=$('clickIn');if(el.hidden===need)el.hidden=!need;}
   lastFrameAt=performance.now();
   const dt=Math.min(clock.getDelta(),.05);
   if(cine&&state==='play'){cineTick(dt);netTick(dt);renderer.render(scene,camera);return;}
