@@ -1572,16 +1572,32 @@ function menuBusy(b){$('hostBtn').disabled=b||!net.lobby;$('joinBtn').disabled=b
 // Same shape as Claude's room: join(name) -> {peers(), presence(obj), leave()}. The host's browser relays everyone's state.
 const PEERJS_URL='https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 function loadPeerJS(){return new Promise((res,rej)=>{if(window.Peer)return res();const s=document.createElement('script');s.src=PEERJS_URL;s.onload=()=>window.Peer?res():rej(new Error('no Peer'));s.onerror=rej;document.head.appendChild(s);});}
-function peerOpts(){const q=new URLSearchParams(location.search);const h=q.get('peerhost');return h?{host:h,port:+q.get('peerport')||9000,path:q.get('peerpath')||'/',secure:false}:{};}
+function peerOpts(ice){const q=new URLSearchParams(location.search);const h=q.get('peerhost');const o=h?{host:h,port:+q.get('peerport')||9000,path:q.get('peerpath')||'/',secure:false}:{};if(ice)o.config={iceServers:ice};return o;}
+// Relay servers so players on different networks (mobile data, strict routers) can still reach the host.
+// Open Relay's shared-secret TURN: username "<expiry>:<name>", password = base64(HMAC-SHA1(secret, username)).
+async function iceServers(){
+  const list=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
+    {urls:['turn:eu-0.turn.peerjs.com:3478','turn:us-0.turn.peerjs.com:3478'],username:'peerjs',credential:'peerjsp'}];
+  try{if(window.crypto&&crypto.subtle){
+    const user=Math.floor(Date.now()/1000+12*3600)+':deadacre',enc=new TextEncoder();
+    const key=await crypto.subtle.importKey('raw',enc.encode('openrelayprojectsecret'),{name:'HMAC',hash:'SHA-1'},false,['sign']);
+    const sig=new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(user)));let bin='';for(const b of sig)bin+=String.fromCharCode(b);
+    list.push({urls:['turn:staticauth.openrelay.metered.ca:80','turn:staticauth.openrelay.metered.ca:80?transport=tcp','turn:staticauth.openrelay.metered.ca:443','turns:staticauth.openrelay.metered.ca:443?transport=tcp'],username:user,credential:btoa(bin)});}}catch(e){}
+  return list;
+}
 function p2pLobby(){
-  return{join(name,mode){return new Promise((resolve,reject)=>{
+  return{async join(name,mode){const ice=await iceServers();return new Promise((resolve,reject)=>{
     const hostId='deadacre-'+name.replace(/[^a-z0-9-]/gi,'').toLowerCase(),isHost=mode==='host';
-    const peer=isHost?new Peer(hostId,peerOpts()):new Peer(peerOpts());
-    const others=new Map(); // id -> presence
-    const conns=new Map();  // host: id -> conn
-    let mine={},hostConn=null,opened=false,left=false;
+    const peer=isHost?new Peer(hostId,peerOpts(ice)):new Peer(peerOpts(ice));
+    const others=new Map(),conns=new Map();
+    let mine={},hostConn=null,opened=false,left=false,tries=0;
+    const status=t=>{const el=document.getElementById('lobbyNote');if(el&&!isHost&&net.phase==='joining')el.textContent=t;};
     const fail=e=>{if(!opened){try{peer.destroy();}catch(x){}const err=new Error(e&&e.type||'p2p');err.code=e&&e.type==='unavailable-id'?'taken':'p2p';reject(err);}};
-    peer.on('error',e=>{if(e&&e.type==='peer-unavailable')return;fail(e);});
+    peer.on('error',e=>{
+      if(e&&e.type==='peer-unavailable'){status('No room with that code is open yet. Still trying…');return;}
+      if(opened&&e&&(e.type==='network'||e.type==='server-error'||e.type==='socket-error'||e.type==='socket-closed')){try{peer.reconnect();}catch(x){}return;}
+      fail(e);});
+    peer.on('disconnected',()=>{if(!left)setTimeout(()=>{try{if(!left&&peer.disconnected)peer.reconnect();}catch(x){}},1000);});
     const room={
       peers(){const out=[{peer:peer.id,presence:mine,sameTab:true}];for(const [id,p] of others)if(id!==peer.id)out.push({peer:id,presence:p,sameTab:false});return out;},
       presence(obj){mine=obj;
@@ -1590,17 +1606,24 @@ function p2pLobby(){
         return Promise.resolve();},
       leave(){left=true;try{peer.destroy();}catch(e){}others.clear();return Promise.resolve();}
     };
+    function connect(){
+      if(left)return;tries++;
+      if(tries>1)status(`Connecting to the host… (try ${tries})`);
+      const c=peer.connect(hostId,{serialization:'json',reliable:false});hostConn=c;
+      const t=setTimeout(()=>{if(!c.open&&hostConn===c){try{c.close();}catch(e){}hostConn=null;setTimeout(connect,400);}},9000);
+      c.on('open',()=>{clearTimeout(t);status('Connected. Waiting for the host…');});
+      c.on('data',d=>{if(!d||!Array.isArray(d.all))return;const seen=new Set();for(const [id,p] of d.all){if(id===peer.id||!p||typeof p!=='object')continue;others.set(id,p);seen.add(id);}for(const id of [...others.keys()])if(!seen.has(id))others.delete(id);});
+      const gone=()=>{clearTimeout(t);if(hostConn===c){hostConn=null;others.clear();setTimeout(connect,1500);}};
+      c.on('close',gone);c.on('error',gone);
+    }
     peer.on('open',()=>{opened=true;
       if(isHost){peer.on('connection',c=>{c.on('open',()=>conns.set(c.peer,c));c.on('data',d=>{if(d&&d.p&&typeof d.p==='object')others.set(c.peer,d.p);});
-          const drop=()=>{conns.delete(c.peer);others.delete(c.peer);};c.on('close',drop);c.on('error',drop);});}
-      else{const connect=()=>{if(left)return;hostConn=peer.connect(hostId,{serialization:'json',reliable:false});
-          hostConn.on('data',d=>{if(!d||!Array.isArray(d.all))return;const seen=new Set();for(const [id,p] of d.all){if(id===peer.id||!p||typeof p!=='object')continue;others.set(id,p);seen.add(id);}for(const id of [...others.keys()])if(!seen.has(id))others.delete(id);});
-          hostConn.on('close',()=>{others.clear();setTimeout(connect,1500);});};connect();}
+          const drop=()=>{if(conns.get(c.peer)===c){conns.delete(c.peer);others.delete(c.peer);}};c.on('close',drop);c.on('error',drop);});}
+      else connect();
       resolve(room);});
-    setTimeout(()=>fail({type:'timeout'}),12000);
+    setTimeout(()=>fail({type:'timeout'}),15000);
   });}};
 }
-
 (async()=>{
   try{net.lobby=(window.claude&&typeof window.claude.use==='function')?await window.claude.use('room'):null;}catch(e){net.lobby=null;}
   if(!net.lobby){try{await loadPeerJS();net.lobby=p2pLobby();net.p2p=true;}catch(e){net.lobby=null;}}
@@ -1796,7 +1819,7 @@ function netRead(){
   for(const [k,rr] of net.remote)if(!seen.has(k)){removeAvatar(rr);net.remote.delete(k);}
   if(net.mode==='client'){
     if(host){net.hostSeen=now;onHost(host.presence);}
-    else if(net.phase==='joining'&&now-net.joinT>(net.p2p?20000:7000)){const c=net.code.toUpperCase();leaveGame();setMpNote(`No game found with code ${c}. Check the code and try again.`,true);}
+    else if(net.phase==='joining'&&now-net.joinT>(net.p2p?45000:7000)){const c=net.code.toUpperCase();leaveGame();setMpNote(`No game found with code ${c}. Check the code and try again.`,true);}
     else if(net.hostSeen&&now-net.hostSeen>5000&&net.phase!=='gone')hostGone();
   }else if(net.mode==='host'&&net.phase==='play')processReports();
 }
