@@ -178,7 +178,7 @@ body.cine #cineBars{display:block}
 #cineTitle.show{opacity:1;transform:none}
 #cineTitle b{display:block;font-family:var(--display);font-weight:400;font-size:clamp(34px,7vw,72px);letter-spacing:.06em;color:#e8dccb;text-shadow:0 0 24px rgba(200,20,10,.6)}
 #cineTitle span{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:#c9a07a}
-#chatLog{left:calc(16px + env(safe-area-inset-left,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100vw - 32px));display:grid;gap:3px}
+#chatLog{z-index:31;left:calc(16px + env(safe-area-inset-left,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100vw - 32px));display:grid;gap:3px}
 #chatLog .cl{font-size:14px;line-height:1.35;padding:3px 8px;background:rgba(8,10,12,.55);border-left:2px solid var(--line);transition:opacity .8s;overflow-wrap:anywhere}
 #chatLog .cl b{font-weight:600;margin-right:6px}
 #chatLog .cl.old{opacity:0}
@@ -266,6 +266,8 @@ body.cine #cineBars{display:block}
   <div class="card">
     <div class="label">Room code</div>
     <div class="row"><div class="code" id="lobbyCode">-----</div><button class="btn alt small" id="copyCode">Copy</button></div>
+    <div class="field"><label class="label" for="lobbyNick">Your name</label><div class="row"><input id="lobbyNick" maxlength="14" autocomplete="off" spellcheck="false" placeholder="Survivor"><button class="btn alt small" id="lobbyNickSave">Change</button></div></div>
+    <p class="note" id="lobbyChatHint">Press Tab to chat with the room.</p>
     <p class="note" id="lobbyHelp">Friends pick Join room on the main menu and type this code. They need access to this game (Share it with them) and must be signed in to Claude.</p>
     <div class="label">Players</div>
     <ul class="plist" id="plist"></ul>
@@ -927,7 +929,7 @@ const keys={};let mouseDown=false,zoomHeld=false;
 let yaw=0,pitch=0,state='menu',lockedOnce=false;
 addEventListener('keydown',e=>{
   if(chatOpen){if(e.code==='Enter'||e.code==='NumpadEnter'){e.preventDefault();sendChat();}else if(e.code==='Escape'||e.code==='Tab'){e.preventDefault();closeChat();}return;}
-  if(e.code==='Tab'&&state==='play'){e.preventDefault();openChat();return;}
+  if(e.code==='Tab'&&(state==='play'||(net.room&&!$('lobby').hidden))){e.preventDefault();openChat();return;}
   keys[e.code]=true;
   if(state!=='play')return;
   if(e.code.startsWith('Digit')){const n=+e.code.slice(5);if(n>=1&&n<=5)selectSlot(n-1);}
@@ -1943,7 +1945,11 @@ function roomPlayers(){
   list.sort((a,b)=>(b.host-a.host)||(a.peer<b.peer?-1:1));
   return list;
 }
+function saveLobbyName(){const v=$('lobbyNick').value.trim();if(!v)return;$('nick').value=v;setName();$('lobbyNick').value=net.name;renderLobby();$('lobbyNickSave').textContent='Saved';setTimeout(()=>$('lobbyNickSave').textContent='Change',1200);}
+$('lobbyNickSave').onclick=saveLobbyName;
+$('lobbyNick').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveLobbyName();}});
 function renderLobby(){
+  if(document.activeElement!==$('lobbyNick')&&$('lobbyNick').value!==net.name)$('lobbyNick').value=net.name||'';
   const ul=$('plist');ul.replaceChildren();
   for(const pl of roomPlayers()){
     const li=document.createElement('li');
