@@ -186,6 +186,7 @@ body.cine #cineBars{display:block}
 #chatLog .cl.sys{color:var(--dim);font-style:italic}
 #chatBox{position:fixed;left:calc(16px + env(safe-area-inset-left,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100vw - 32px));z-index:30}
 #chatIn{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--ink);background:rgba(8,10,12,.85);border:1px solid var(--amber);padding:8px 10px;outline:none}
+body.playing,body.playing #game,body.playing canvas{cursor:none}
 </style>
 
 <div id="game"></div>
@@ -2694,6 +2695,7 @@ setInterval(()=>{
 },250);
 function frame(){
   requestAnimationFrame(frame);
+  {const pl=state==='play'&&!net.paused&&!shopOpen&&!chatOpen&&$('pause').hidden&&$('confirm').hidden;if(pl!==document.body.classList.contains('playing'))document.body.classList.toggle('playing',pl);}
   lastFrameAt=performance.now();
   const dt=Math.min(clock.getDelta(),.05);
   if(cine&&state==='play'){cineTick(dt);netTick(dt);renderer.render(scene,camera);return;}
